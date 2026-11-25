@@ -3,6 +3,11 @@ from fastapi import FastAPI, HTTPException
 from backend.database.db import get_connection
 from backend.schemas import JobCreate, JobStatusUpdate
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import UploadFile, File, Form
+from backend.resume_analyzer import (
+    extract_resume_text,
+    analyze_resume
+)
 
 app = FastAPI(
     title="HireTrack AI API",
@@ -137,3 +142,52 @@ def delete_job(job_id: int):
         "message": "Job application deleted successfully",
         "deleted_job_id": job_id
     }
+
+@app.post("/analyze-resume")
+async def analyze_resume_endpoint(
+    resume: UploadFile = File(...),
+    job_description: str = Form(...)
+):
+    allowed_extensions = (".pdf", ".docx", ".txt")
+
+    if not resume.filename.lower().endswith(allowed_extensions):
+        raise HTTPException(
+            status_code=400,
+            detail="Upload a PDF, DOCX or TXT resume."
+        )
+
+    try:
+        file_bytes = await resume.read()
+
+        if len(file_bytes) > 5 * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail="Resume must be smaller than 5 MB."
+            )
+
+        resume_text = extract_resume_text(
+            resume.filename,
+            file_bytes
+        )
+
+        result = analyze_resume(
+            resume_text,
+            job_description
+        )
+
+        return result
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Resume analysis failed. Please try another file."
+        )
